@@ -1,0 +1,119 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isUser(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Users collection: only owner can edit profile
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isUser(userId);
+      allow update: if isUser(userId);
+      allow delete: if false;
+    }
+
+    // Orders collection:
+    match /orders/{orderId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() 
+                    && (request.resource.data.creatorId == request.auth.uid || request.resource.data.ownerId == request.auth.uid)
+                    && request.resource.data.extensionCount == 0
+                    && (request.resource.data.status in ['waiting', 'open', 'scheduled'])
+                    && request.resource.data.myAmount >= 15;
+      
+      allow update: if isSignedIn() && (
+        (resource.data.creatorId == request.auth.uid || resource.data.ownerId == request.auth.uid) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberCount', 'participantCount', 'currentCart', 'acceptedCartValue', 'pendingRequestCount', 'pendingPotentialCartValue', 'acceptedRequesterIds', 'status'])
+         && resource.data.status in ['waiting', 'open', 'matched', 'scheduled', 'ready_to_close'])
+      );
+      allow delete: if false;
+    }
+
+    // Join requests collection:
+    match /joinRequests/{reqId} {
+      allow read: if isSignedIn() && (
+        resource.data.ownerId == request.auth.uid ||
+        resource.data.creatorId == request.auth.uid ||
+        resource.data.requesterId == request.auth.uid
+      );
+      
+      allow create: if isSignedIn()
+                    && request.resource.data.requesterId == request.auth.uid
+                    && request.resource.data.ownerId != request.auth.uid
+                    && request.resource.data.contributionAmount >= 15
+                    && request.resource.data.status == 'pending';
+
+      allow update: if isSignedIn() && (
+        (resource.data.requesterId == request.auth.uid 
+         && request.resource.data.status in ['withdrawn', 'cancelled', 'left', 'auto_withdrawn']) ||
+        ((resource.data.ownerId == request.auth.uid || resource.data.creatorId == request.auth.uid)
+         && request.resource.data.status in ['accepted', 'rejected', 'removed', 'expired'])
+      );
+      allow delete: if false;
+    }
+
+    // Groups collection:
+    match /groups/{groupId} {
+      allow read: if isSignedIn() && (
+        resource.data.creatorId == request.auth.uid ||
+        resource.data.ownerId == request.auth.uid ||
+        (request.auth.uid in resource.data.memberIds)
+      );
+
+      allow create: if isSignedIn() && (
+        request.resource.data.creatorId == request.auth.uid ||
+        request.resource.data.ownerId == request.auth.uid
+      );
+
+      allow update: if isSignedIn() && (
+        (resource.data.creatorId == request.auth.uid || resource.data.ownerId == request.auth.uid) ||
+        (request.auth.uid in resource.data.memberIds) ||
+        (request.auth.uid in request.resource.data.memberIds)
+      );
+      allow delete: if false;
+
+      // Group Chat Messages:
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && (
+          request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds
+        );
+        allow create: if isSignedIn() && (
+          (request.resource.data.senderId == request.auth.uid || request.resource.data.senderId == 'system') &&
+          request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds
+        );
+        allow update, delete: if false;
+      }
+    }
+
+    // Persistent in-app notifications
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && resource.data.recipientId == request.auth.uid;
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && resource.data.recipientId == request.auth.uid
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead', 'readAtMs']);
+      allow delete: if false;
+    }
+
+    // Verified post-completion ratings
+    match /ratings/{ratingId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() 
+                    && request.resource.data.reviewerId == request.auth.uid
+                    && request.resource.data.reviewerId != request.resource.data.reviewedUserId;
+      allow update, delete: if false;
+    }
+
+    // Safety reports
+    match /reports/{reportId} {
+      allow create: if isSignedIn() && request.resource.data.reporterId == request.auth.uid;
+      allow read: if isSignedIn() && resource.data.reporterId == request.auth.uid;
+      allow update, delete: if false;
+    }
+  }
+}

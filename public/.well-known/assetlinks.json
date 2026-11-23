@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "in.ordernearme.app",
+        "sha256_cert_fingerprints": ["C8:53:76:72:5D:51:62:47:72:BE:9B:0D:AA:A1:27:EB:53:39:95:EB:16:2C:97:1B:9D:8B:6E:CB:9C:D8:46:29"]
+      }
+    }]
